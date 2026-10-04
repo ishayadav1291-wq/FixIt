@@ -1,0 +1,134 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #090A0F;
+    color: #F3F4F6;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    padding: 0;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-ligatures: none;
+  }
+}
+
+/* Light Mode Theme Overrides */
+html.light-theme body,
+.light-theme {
+  background-color: #F8FAFC !important;
+  color: #0F172A !important;
+}
+
+.light-theme .bg-\[\#090A0F\],
+.light-theme .bg-\[\#0B0C10\],
+.light-theme .bg-\[\#06070B\] {
+  background-color: #F1F5F9 !important;
+}
+
+.light-theme .bg-\[\#0E1017\],
+.light-theme .bg-\[\#11131A\] {
+  background-color: #FFFFFF !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.light-theme .border-white\/10,
+.light-theme .border-white\/15,
+.light-theme .border-white\/5,
+.light-theme .border-white\/\[0\.08\],
+.light-theme .border-white\/\[0\.05\],
+.light-theme .border-white\/\[0\.06\] {
+  border-color: #E2E8F0 !important;
+}
+
+.light-theme .divide-white\/10 > :not([hidden]) ~ :not([hidden]),
+.light-theme .divide-white\/5 > :not([hidden]) ~ :not([hidden]),
+.light-theme .divide-white\/\[0\.08\] > :not([hidden]) ~ :not([hidden]),
+.light-theme .divide-white\/\[0\.05\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #E2E8F0 !important;
+}
+
+.light-theme .text-white,
+.light-theme .text-\[\#F3F4F6\],
+.light-theme .text-zinc-100,
+.light-theme .text-zinc-200 {
+  color: #0F172A !important;
+}
+
+.light-theme .text-zinc-300,
+.light-theme .text-zinc-400 {
+  color: #475569 !important;
+}
+
+.light-theme .text-zinc-500,
+.light-theme .text-zinc-600 {
+  color: #64748B !important;
+}
+
+.light-theme .text-emerald-400,
+.light-theme .text-emerald-300,
+.light-theme .text-emerald-200 {
+  color: #047857 !important;
+}
+
+.light-theme .text-rose-400,
+.light-theme .text-rose-300,
+.light-theme .text-rose-300\/90,
+.light-theme .text-rose-200 {
+  color: #BE123C !important;
+}
+
+.light-theme .text-sky-400 {
+  color: #0369A1 !important;
+}
+
+.light-theme .text-amber-400,
+.light-theme .text-amber-300,
+.light-theme .text-amber-200 {
+  color: #B45309 !important;
+}
+
+.light-theme .bg-white\/5,
+.light-theme .bg-white\/\[0\.02\],
+.light-theme .bg-white\/\[0\.04\] {
+  background-color: #F8FAFC !important;
+}
+
+.light-theme .hover\:bg-white\/10:hover,
+.light-theme .hover\:bg-white\/5:hover {
+  background-color: #E2E8F0 !important;
+}
+
+.light-theme .bg-emerald-500\/10,
+.light-theme .bg-emerald-500\/15,
+.light-theme .bg-emerald-500\/\[0\.04\] {
+  background-color: #ECFDF5 !important;
+}
+
+.light-theme .bg-rose-500\/\[0\.04\] {
+  background-color: #FFF1F2 !important;
+}
+
+.light-theme .bg-sky-500\/10 {
+  background-color: #F0F9FF !important;
+}
+
+/* Minimal custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}

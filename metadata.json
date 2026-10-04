@@ -1,0 +1,8 @@
+{
+  "name": "FixIt ",
+  "description": "Multi-agent AI bug repair workbench comparing a 5-agent LangGraph team against a single-agent baseline on SWE-bench Lite.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
