@@ -44,7 +44,8 @@ const SIMPLE_STAGES = [
 
 function buildSurgicalFixGuide(
   sourceSnippet: string,
-  unifiedDiff: string
+  unifiedDiff: string,
+  fixedFullCode?: string
 ): SurgicalFixGuide {
   const diffLines = (unifiedDiff || '').split('\n');
   const removedLines: string[] = [];
@@ -72,33 +73,57 @@ function buildSurgicalFixGuide(
   const headerLineMatch = srcLines[0]?.match(/lines?\s+(\d+)/i);
   const baseOffset = headerLineMatch ? parseInt(headerLineMatch[1], 10) - 1 : 1;
 
+  if (fixedFullCode && fixedFullCode.trim().length > 0) {
+    const fixedArr = fixedFullCode.split('\n');
+    fixedArr.forEach((line, idx) => {
+      if (srcLines[idx] !== line) {
+        changedLineSet.add(idx);
+      }
+    });
+    return {
+      startLineNumber,
+      removedSnippet:
+        removedLines.length > 0 ? removedLines.join('\n') : '# (missing block / line)',
+      addedSnippet:
+        addedLines.length > 0 ? addedLines.join('\n') : fixedFullCode,
+      cleanFullCode: fixedFullCode,
+      changedLineSet,
+    };
+  }
+
   const finalLines = [...srcLines];
 
   if (removedLines.length > 0) {
-    let matchedAny = false;
-    for (let rIdx = 0; rIdx < removedLines.length; rIdx++) {
-      const removedTrimmed = removedLines[rIdx].trim();
-      const replacementLine =
-        addedLines[rIdx] !== undefined ? addedLines[rIdx] : '';
-      if (!removedTrimmed) continue;
+    // Try contiguous block match first so multi-line diffs with different line counts splice cleanly
+    const firstRemovedTrimmed = removedLines[0].trim();
+    const firstIdx = finalLines.findIndex((l) => l.trim() === firstRemovedTrimmed);
 
-      const lineIndex = finalLines.findIndex(
-        (l, idx) => l.trim() === removedTrimmed && !changedLineSet.has(idx)
-      );
-      if (lineIndex !== -1) {
-        if (!matchedAny) {
-          startLineNumber = baseOffset + lineIndex;
-          matchedAny = true;
-        }
-        if (removedLines.length === 1 && addedLines.length > 1) {
-          finalLines.splice(lineIndex, 1, ...addedLines);
-          for (let k = 0; k < addedLines.length; k++) {
-            changedLineSet.add(lineIndex + k);
+    if (firstIdx !== -1 && (removedLines.length === 1 || addedLines.length !== removedLines.length)) {
+      startLineNumber = baseOffset + firstIdx;
+      finalLines.splice(firstIdx, removedLines.length, ...addedLines);
+      for (let k = 0; k < addedLines.length; k++) {
+        changedLineSet.add(firstIdx + k);
+      }
+    } else {
+      let matchedAny = false;
+      for (let rIdx = 0; rIdx < removedLines.length; rIdx++) {
+        const removedTrimmed = removedLines[rIdx].trim();
+        const replacementLine =
+          addedLines[rIdx] !== undefined ? addedLines[rIdx] : '';
+        if (!removedTrimmed) continue;
+
+        const lineIndex = finalLines.findIndex(
+          (l, idx) => l.trim() === removedTrimmed && !changedLineSet.has(idx)
+        );
+        if (lineIndex !== -1) {
+          if (!matchedAny) {
+            startLineNumber = baseOffset + lineIndex;
+            matchedAny = true;
           }
-          break;
-        } else if (replacementLine) {
-          finalLines[lineIndex] = replacementLine;
-          changedLineSet.add(lineIndex);
+          if (replacementLine) {
+            finalLines[lineIndex] = replacementLine;
+            changedLineSet.add(lineIndex);
+          }
         }
       }
     }
@@ -218,8 +243,16 @@ export const AnimatedTerminalPipeline: React.FC<AnimatedTerminalPipelineProps> =
 
   const fixGuide = React.useMemo(
     () =>
-      buildSurgicalFixGuide(sourceSnippet, activeTraceForOutput.finalPatchDiff),
-    [sourceSnippet, activeTraceForOutput.finalPatchDiff]
+      buildSurgicalFixGuide(
+        sourceSnippet,
+        activeTraceForOutput.finalPatchDiff,
+        activeTraceForOutput.fixedFullCode
+      ),
+    [
+      sourceSnippet,
+      activeTraceForOutput.finalPatchDiff,
+      activeTraceForOutput.fixedFullCode,
+    ]
   );
 
   const [completedLineCount, setCompletedLineCount] = useState<number>(0);

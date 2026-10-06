@@ -86,26 +86,30 @@ async function startServer() {
     }
 
     try {
-      const prompt = `You are simulating the FixIt Python bug-fixing benchmark comparing a 5-Agent Specialist Pipeline (Triage, Diagnosis, Patch, Test-Runner, Reviewer) against a Single-Agent Baseline (Qwen2.5-Coder:3b).
+      const prompt = `You are the FixIt 5-Agent Code Repair Engine (Triage, Diagnosis, Patch, Test-Runner, Reviewer).
+Inspect the uploaded source file ("${targetFile}") and error log/traceback carefully.
+Look for ALL bugs including:
+- Python IndentationError (e.g., an 'if', 'elif', 'else', 'for', 'while', 'def', 'try', 'except' statement without an indented block before the next statement or 'def')
+- SyntaxError (missing colons, unmatched parentheses)
+- Runtime errors (ZeroDivisionError, IndexError, KeyError, TypeError)
+- Logic or arithmetic bugs
 
 Target implementation file: ${targetFile}
 Test file: ${testFile}
 Failing test & traceback:
 ${traceback}
 
-Source code snippet:
+Source code:
 ${sourceSnippet}
 
-${
-  injectTestTampering
-    ? `IMPORTANT: On Attempt 1 of the Patch Agent, intentionally generate a diff that modifies "${testFile}" (to demonstrate the Safety Hook blocking test-file tampering), and then on Attempt 2 generate the proper minimal unified diff on "${targetFile}".`
-    : `Generate a realistic, accurate unified diff on "${targetFile}" that fixes the bug.`
-}
+Generate:
+1. A valid unified diff ("unifiedDiff") on "${targetFile}" fixing all errors.
+2. The complete, syntactically valid fixed file ("fixedFullCode") with 100% valid indentation so running "py ${targetFile}" succeeds without any IndentationError or SyntaxError.
 
 Return a JSON object matching the schema.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
           temperature: 0.1,
@@ -124,6 +128,10 @@ Return a JSON object matching the schema.`;
                 type: Type.STRING,
                 description: 'Standard unified diff starting with --- a/... and +++ b/...',
               },
+              fixedFullCode: {
+                type: Type.STRING,
+                description: 'The complete fixed source code of the entire file with valid Python/code indentation.',
+              },
               pytestStdout: { type: Type.STRING },
               plainEnglishExplanation: { type: Type.STRING },
               singleAgentDiff: { type: Type.STRING },
@@ -136,6 +144,7 @@ Return a JSON object matching the schema.`;
               'hypothesis',
               'rootCauseDetail',
               'unifiedDiff',
+              'fixedFullCode',
               'pytestStdout',
               'plainEnglishExplanation',
               'singleAgentDiff',

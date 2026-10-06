@@ -50,6 +50,7 @@ export interface PipelineTrace {
   iterationsUsed: number;
   totalDurationSec: number;
   finalPatchDiff: string;
+  fixedFullCode?: string;
   failureStage?: 'Triage' | 'Diagnosis' | 'Patch Syntax' | 'Safety Hook' | 'Test Execution' | 'Max Retries Exhausted';
   steps: AgentStepOutput[];
 }
