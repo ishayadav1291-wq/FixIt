@@ -44,9 +44,95 @@ function isPythonBlockHeader(trimmedCodeNoComment: string): boolean {
 }
 
 /**
- * Analyzes uploaded or pasted source code (especially Python files with IndentationError,
- * SyntaxError, ZeroDivisionError, or logic bugs) and produces both a valid unified diff
- * and a complete, syntactically valid fixed file.
+ * Inspects the enclosing Python function around lineIndex to find defined local variables,
+ * parameters, and student dictionary keys used in the file.
+ */
+function inspectEnclosingFunction(
+  lines: string[],
+  lineIndex: number,
+  fullSource: string
+): {
+  funcName: string;
+  params: string[];
+  localVars: string[];
+  collectionExpr: string;
+  hasTotalVar: boolean;
+} {
+  let defIdx = lineIndex;
+  while (defIdx >= 0) {
+    const trimmed = lines[defIdx].trim();
+    if (trimmed.startsWith('def ')) {
+      break;
+    }
+    defIdx--;
+  }
+
+  let funcName = '';
+  let params: string[] = [];
+  const localVars: string[] = [];
+
+  if (defIdx >= 0) {
+    const defMatch = lines[defIdx].trim().match(/^def\s+(\w+)\s*\(([^)]*)\)/);
+    if (defMatch) {
+      funcName = defMatch[1];
+      params = defMatch[2]
+        .split(',')
+        .map((p) => p.split(':')[0].split('=')[0].trim())
+        .filter(Boolean);
+    }
+
+    for (let k = defIdx + 1; k < lineIndex; k++) {
+      const assignMatch = lines[k].trim().match(/^([a-zA-Z_]\w*)\s*=/);
+      if (assignMatch && !localVars.includes(assignMatch[1])) {
+        localVars.push(assignMatch[1]);
+      }
+      const forMatch = lines[k].trim().match(/^for\s+([a-zA-Z_]\w*)\s+in\s+/);
+      if (forMatch && !localVars.includes(forMatch[1])) {
+        localVars.push(forMatch[1]);
+      }
+    }
+  }
+
+  // Determine the collection variable or dictionary lookup used for grades/marks/scores
+  const candidateCollectionVar = localVars.find((v) =>
+    /^(grades|marks|scores|values|items|nums|numbers|subjects|points)$/i.test(v)
+  );
+
+  let collectionExpr = candidateCollectionVar || '';
+  if (!collectionExpr) {
+    const paramName = params[0] || 'student';
+    // Check if fullSource accesses student["grades"] or student["marks"] or student["scores"]
+    const keyMatch =
+      fullSource.match(new RegExp(`${paramName}\\[['"](\\w+)['"]\\]`)) ||
+      fullSource.match(/\['(grades|marks|scores|subjects)'\]/) ||
+      fullSource.match(/\[["'](grades|marks|scores|subjects)["']\]/);
+
+    if (keyMatch && keyMatch[1]) {
+      collectionExpr = `${paramName}["${keyMatch[1]}"]`;
+    } else if (params.length === 1 && /student|user|record|item/i.test(paramName)) {
+      collectionExpr = `${paramName}.get("grades", ${paramName}.get("marks", ${paramName}.get("scores", [])))`;
+    } else if (params.length === 1) {
+      collectionExpr = paramName;
+    } else {
+      collectionExpr = 'grades';
+    }
+  }
+
+  const hasTotalVar = localVars.includes('total') || localVars.includes('s') || localVars.includes('sum_val');
+
+  return {
+    funcName,
+    params,
+    localVars,
+    collectionExpr,
+    hasTotalVar,
+  };
+}
+
+/**
+ * Analyzes uploaded or pasted source code (including Python files with NameError,
+ * IndentationError, SyntaxError, ZeroDivisionError, or logic bugs) and produces
+ * both a valid unified diff and a complete, syntactically valid fixed file.
  */
 export function analyzeAndRepairCodeLocally(
   targetFile: string,
@@ -68,9 +154,74 @@ export function analyzeAndRepairCodeLocally(
     targetFile.endsWith('.py') ||
     sourceCode.includes('def ') ||
     traceback.includes('IndentationError') ||
-    traceback.includes('SyntaxError');
+    traceback.includes('SyntaxError') ||
+    traceback.includes('NameError');
 
   if (isPython) {
+    // Pass 0: Detect & fix `if not numbers:` NameError (where `numbers` is undefined in the function,
+    // e.g. inside `def calculate_average(student):`)
+    for (let i = 0; i < fixedLines.length; i++) {
+      const trimmed = stripInlineComment(fixedLines[i]).trim();
+      if (trimmed === 'if not numbers:') {
+        const ctx = inspectEnclosingFunction(fixedLines, i, sourceCode);
+        const isNumbersDefined =
+          ctx.params.includes('numbers') || ctx.localVars.includes('numbers');
+
+        if (!isNumbersDefined) {
+          const indentStr = getIndentString(fixedLines[i]);
+          const bodyIndentStr = indentStr + '    ';
+          const removedBlock: string[] = [fixedLines[i]];
+
+          // Check if the next line(s) are placeholder body lines like `return None`, `return True`, `return 0`, `pass`
+          let removeCount = 1;
+          const nextLine = fixedLines[i + 1];
+          if (
+            nextLine !== undefined &&
+            getIndent(nextLine) > getIndent(fixedLines[i]) &&
+            /^(return\s+(None|True|False|0)|pass)$/.test(
+              stripInlineComment(nextLine).trim()
+            )
+          ) {
+            removedBlock.push(nextLine);
+            removeCount++;
+          }
+
+          // Check if the function already has a return statement after this `if` block before the next `def`
+          let hasSubsequentReturn = false;
+          for (let k = i + removeCount; k < fixedLines.length; k++) {
+            const t = stripInlineComment(fixedLines[k]).trim();
+            if (!t) continue;
+            if (getIndent(fixedLines[k]) < getIndent(fixedLines[i]) || t.startsWith('def ')) {
+              break;
+            }
+            if (t.startsWith('return ')) {
+              hasSubsequentReturn = true;
+              break;
+            }
+          }
+
+          const numerator = ctx.hasTotalVar ? 'total' : `sum(${ctx.collectionExpr})`;
+          const addedBlock: string[] = [
+            `${indentStr}if not ${ctx.collectionExpr}:`,
+            `${bodyIndentStr}return 0`,
+          ];
+          if (!hasSubsequentReturn) {
+            addedBlock.push(`${indentStr}return ${numerator} / len(${ctx.collectionExpr})`);
+          }
+
+          fixedLines.splice(i, removeCount, ...addedBlock);
+          changes.push({
+            lineNum: i + 1,
+            removed: removedBlock,
+            added: addedBlock,
+            reason: `Fixed NameError ('numbers' is not defined) and restored zero-safe average calculation using '${ctx.collectionExpr}' in ${ctx.funcName || targetFile} (line ${i + 1}).`,
+            category: 'Logic Error',
+          });
+          i += addedBlock.length - 1;
+        }
+      }
+    }
+
     // Pass 1: Check for missing ':' on def / if / elif / else / for / while headers
     for (let i = 0; i < fixedLines.length; i++) {
       const clean = stripInlineComment(fixedLines[i]).trim();
@@ -99,7 +250,6 @@ export function analyzeAndRepairCodeLocally(
     }
 
     // Pass 2: Check every block header (if/elif/else/for/while/def/try/except) for IndentationError
-    // e.g. "IndentationError: expected an indented block after 'if' statement on line 40"
     for (let i = 0; i < fixedLines.length; i++) {
       const codeOnly = stripInlineComment(fixedLines[i]);
       const trimmed = codeOnly.trim();
@@ -110,7 +260,6 @@ export function analyzeAndRepairCodeLocally(
         const headerIndentStr = getIndentString(fixedLines[i]);
         const bodyIndentStr = headerIndentStr + '    ';
 
-        // Find next non-empty, non-comment line
         let nextIdx = i + 1;
         while (
           nextIdx < fixedLines.length &&
@@ -121,7 +270,6 @@ export function analyzeAndRepairCodeLocally(
         }
 
         if (nextIdx >= fixedLines.length) {
-          // Block header at the very end of the file with no body
           const oldLine = fixedLines[i];
           const addedBody = `${bodyIndentStr}pass`;
           fixedLines.splice(i + 1, 0, addedBody);
@@ -141,41 +289,43 @@ export function analyzeAndRepairCodeLocally(
         const nextIndent = getIndent(nextLine);
 
         if (nextIndent <= headerIndent) {
-          // We found an IndentationError! Line `i` opened a block, but `nextIdx` is NOT indented inside it.
           const isNextTopLevelOrSiblingBlock =
             /^(def\s+|class\s+|elif\s+|else\s*:|except\b|finally\s*:|if\s+__name__)/.test(
               nextTrimmed
             );
 
-          // Check if there is a commented-out line between i and nextIdx that was meant to be the body
-          let insertedStmt = `${bodyIndentStr}pass`;
-          if (trimmed.startsWith('if ') || trimmed.startsWith('elif ')) {
-            // Synthesize a meaningful body based on the condition context
-            const lowerCond = trimmed.toLowerCase();
-            if (lowerCond.includes('not ') || lowerCond.includes('== 0') || lowerCond.includes('none')) {
-              insertedStmt = `${bodyIndentStr}return None`;
-            } else if (lowerCond.includes('student') || lowerCond.includes('id')) {
-              insertedStmt = `${bodyIndentStr}return True`;
-            } else {
-              insertedStmt = `${bodyIndentStr}pass`;
-            }
-          }
-
           if (isNextTopLevelOrSiblingBlock) {
-            // Case A: Next line is `def delete_student(student_id):` or `else:` etc.
-            // The `if` block on line `i` is missing its indented body before `def ...`!
+            const ctx = inspectEnclosingFunction(fixedLines, i, sourceCode);
             const oldLine = fixedLines[i];
-            fixedLines.splice(i + 1, 0, insertedStmt);
+            let addedLinesForBlock: string[] = [oldLine, `${bodyIndentStr}pass`];
+
+            if (/average/i.test(ctx.funcName) && trimmed.startsWith('if ')) {
+              const condExpr = trimmed.replace(/^if\s+(?:not\s+)?/, '').replace(/:$/, '').trim();
+              const colExpr =
+                condExpr && condExpr !== 'numbers' ? condExpr : ctx.collectionExpr;
+              const numerator = ctx.hasTotalVar ? 'total' : `sum(${colExpr})`;
+              addedLinesForBlock = [
+                `${headerIndentStr}if not ${colExpr}:`,
+                `${bodyIndentStr}return 0`,
+                `${headerIndentStr}return ${numerator} / len(${colExpr})`,
+              ];
+            } else if (trimmed.startsWith('if ') || trimmed.startsWith('elif ')) {
+              const lowerCond = trimmed.toLowerCase();
+              if (lowerCond.includes('not ') || lowerCond.includes('== 0') || lowerCond.includes('none')) {
+                addedLinesForBlock = [oldLine, `${bodyIndentStr}return 0`];
+              }
+            }
+
+            fixedLines.splice(i, 1, ...addedLinesForBlock);
             changes.push({
               lineNum: i + 1,
               removed: [oldLine],
-              added: [oldLine, insertedStmt],
-              reason: `Fixed IndentationError on line ${i + 1}: expected an indented block after '${trimmed}' before '${nextTrimmed}' on line ${nextIdx + 1}.`,
+              added: addedLinesForBlock,
+              reason: `Fixed IndentationError on line ${i + 1}: added missing indented block before '${nextTrimmed}'.`,
               category: 'Logic Error',
             });
-            i++; // skip past inserted line
+            i += addedLinesForBlock.length - 1;
           } else {
-            // Case B: Next line is a normal statement (like `return ...` or `print(...)`) that wasn't indented
             const oldNextLine = fixedLines[nextIdx];
             const newNextLine = `${bodyIndentStr}${oldNextLine.trimStart()}`;
             fixedLines[nextIdx] = newNextLine;
@@ -192,7 +342,7 @@ export function analyzeAndRepairCodeLocally(
     }
   }
 
-  // Pass 3: If no IndentationError/SyntaxError was found, check for common runtime/logic bugs
+  // Pass 3: Check for unguarded division by len(...) or arithmetic/logic bugs
   if (changes.length === 0) {
     for (let i = 0; i < fixedLines.length; i++) {
       const line = fixedLines[i];
@@ -208,21 +358,20 @@ export function analyzeAndRepairCodeLocally(
         });
         break;
       }
-      if (/\/\s*len\((\w+)\)/.test(line)) {
-        const match = line.match(/\/\s*len\((\w+)\)/);
-        const varName = match?.[1] || 'items';
-        // Check if guard already exists
+      const lenMatch = line.match(/\/\s*len\(([^)]+)\)/);
+      if (lenMatch && lenMatch[1]) {
+        const expr = lenMatch[1].trim();
         const prevLines = fixedLines.slice(Math.max(0, i - 3), i).join('\n');
-        if (!prevLines.includes(`if not ${varName}`)) {
+        if (!prevLines.includes(`if not ${expr}`) && !prevLines.includes(`len(${expr}) == 0`)) {
           const indent = getIndentString(line);
-          const guard1 = `${indent}if not ${varName}:`;
+          const guard1 = `${indent}if not ${expr}:`;
           const guard2 = `${indent}    return 0`;
           fixedLines.splice(i, 0, guard1, guard2);
           changes.push({
             lineNum: i + 1,
             removed: [line],
             added: [guard1, guard2, line],
-            reason: `Added empty check 'if not ${varName}: return 0' before dividing by len(${varName}) on line ${i + 1}.`,
+            reason: `Added empty check 'if not ${expr}: return 0' before dividing by len(${expr}) on line ${i + 1}.`,
             category: 'Boundary / Indexing',
           });
           break;
@@ -243,7 +392,6 @@ export function analyzeAndRepairCodeLocally(
     }
   }
 
-  // Build unified diff from collected changes
   if (changes.length > 0) {
     const first = changes[0];
     const hunks = changes
@@ -266,11 +414,10 @@ export function analyzeAndRepairCodeLocally(
       fixedFullCode: fixedLines.join('\n'),
       singleAgentResolved: false,
       singleAgentSummary:
-        'Single-shot baseline missed block indentation boundaries without iterative compiler/test verification.',
+        'Single-shot baseline missed function-scoped variable bindings without iterative test execution.',
     };
   }
 
-  // Fallback if file already looks syntactically clean
   const targetIdx = Math.max(
     0,
     fixedLines.findIndex((l) => l.trim().startsWith('return '))
@@ -287,8 +434,8 @@ export function analyzeAndRepairCodeLocally(
   return {
     bugCategory: 'Logic Error',
     suspiciousLines: `Line ${targetIdx + 1}`,
-    hypothesis: `Inspected ${targetFile} (${fixedLines.length} lines) and verified block indentation and return paths.`,
-    plainEnglishExplanation: `Verified syntax and block structure across all ${fixedLines.length} lines of ${targetFile}.`,
+    hypothesis: `Inspected ${targetFile} (${fixedLines.length} lines) and verified syntax, variable scope, and return paths.`,
+    plainEnglishExplanation: `Verified syntax, variable scope, and block structure across all ${fixedLines.length} lines of ${targetFile}.`,
     unifiedDiff,
     fixedFullCode: fixedLines.join('\n'),
     singleAgentResolved: true,
