@@ -564,9 +564,9 @@ export default function App() {
       <main className="flex-1 w-full px-6 py-5 space-y-5">
         {activeSection === 'workbench' && (
           <div className="space-y-5">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
               {/* LEFT SIDE: STEP 1 — CHOOSE OR PASTE A BUG */}
-              <div className="lg:col-span-5 rounded-lg border border-white/10 bg-[#11131A] p-5 flex flex-col justify-between space-y-4">
+              <div className="lg:col-span-5 rounded-lg border border-white/10 bg-[#11131A] p-5 space-y-4">
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-sm font-semibold text-white">
@@ -612,17 +612,27 @@ export default function App() {
                   </div>
 
                   {uploadedFileName && (
-                    <div className="px-3 py-2 rounded-md bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between text-xs">
+                    <div className="px-3 py-2 rounded-md bg-emerald-500/10 border border-emerald-500/30 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span className="text-emerald-300 font-mono">
                         Uploaded: {uploadedFileName}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => errorFileInputRef.current?.click()}
-                        className="text-zinc-300 hover:text-white underline cursor-pointer"
-                      >
-                        + Upload Error Log (.log/.txt)
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => errorFileInputRef.current?.click()}
+                          className="text-zinc-300 hover:text-white underline cursor-pointer"
+                        >
+                          + Error Log
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRunPipeline}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-black font-semibold cursor-pointer"
+                        >
+                          <Play className="w-3 h-3 fill-current" />
+                          <span>Run Repair</span>
+                        </button>
+                      </div>
                     </div>
                   )}
 
